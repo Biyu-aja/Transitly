@@ -8,6 +8,7 @@ import { useAuthStore } from './store/authStore';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import RoutesPage from './pages/RoutesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,14 @@ function App() {
                 element={
                   <PrivateRoute>
                     <HomePage />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/routes"
+                element={
+                  <PrivateRoute>
+                    <RoutesPage />
                   </PrivateRoute>
                 }
               />

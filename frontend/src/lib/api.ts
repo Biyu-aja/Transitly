@@ -65,3 +65,24 @@ export const postService = {
     return response.data;
   },
 };
+
+export const routeService = {
+  getRoutes: async () => {
+    const response = await api.get('/routes');
+    return response.data;
+  },
+  createRoute: async (data: {
+    name: string;
+    description?: string;
+    startLat: number;
+    startLng: number;
+    endLat: number;
+    endLng: number;
+    transportModes: string[];
+    estimatedTime?: number;
+    estimatedCost?: number;
+  }) => {
+    const response = await api.post('/routes', data);
+    return response.data;
+  }
+};
