@@ -7,6 +7,20 @@ import { MapPin, MessageCircle, Heart, Share2, Image as ImageIcon, Navigation } 
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
 
+import { Send } from 'lucide-react';
+
+interface Comment {
+  id: string;
+  content: string;
+  createdAt: string;
+  user: {
+    id: string;
+    username: string;
+    fullName: string;
+    avatarUrl: string | null;
+  };
+}
+
 interface Post {
   id: string;
   userId: string;
@@ -23,6 +37,10 @@ interface Post {
     fullName: string;
     avatarUrl: string | null;
   };
+  hasLiked?: boolean;
+  upvotes: number;
+  commentsData?: Comment[];
+  isCommentsLoading?: boolean;
   _count: {
     comments: number;
   };
@@ -45,6 +63,10 @@ export default function HomePage() {
   // Feed Filter State
   const [feedRadius, setFeedRadius] = useState<number | null>(null); // null means all locations
   const [feedCoords, setFeedCoords] = useState<{lat: number, lng: number} | null>(null);
+
+  // Interaction State
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchPosts();
@@ -127,6 +149,9 @@ export default function HomePage() {
         locationLat: coords?.lat,
         locationLng: coords?.lng,
       });
+      // Set default interactions fields for newly created post right away
+      newPost.upvotes = 0;
+      newPost.hasLiked = false;
       setPosts([newPost, ...posts]);
       setContent('');
       setTitle('');
@@ -135,6 +160,81 @@ export default function HomePage() {
     } catch (error) {
       console.error('Failed to create post', error);
       alert('Gagal membuat postingan');
+    }
+  };
+
+  const handleLikePost = async (postId: string) => {
+    // Optimistic update
+    setPosts(currentPosts => currentPosts.map(post => {
+      if (post.id === postId) {
+        return {
+          ...post,
+          hasLiked: !post.hasLiked,
+          upvotes: post.hasLiked ? Math.max(0, post.upvotes - 1) : post.upvotes + 1
+        };
+      }
+      return post;
+    }));
+
+    try {
+      const res = await postService.toggleLike(postId);
+      // Ensure sync with server state
+      setPosts(currentPosts => currentPosts.map(post => {
+        if (post.id === postId) {
+          return { ...post, upvotes: res.upvotes, hasLiked: res.action === 'liked' };
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Error toggling like', error);
+      alert('Gagal menyukai postingan');
+    }
+  };
+
+  const handleToggleComments = async (postId: string) => {
+    const isExpanded = expandedComments[postId];
+    setExpandedComments(prev => ({ ...prev, [postId]: !isExpanded }));
+
+    // Fetch comments if expanding and not already loaded data
+    if (!isExpanded) {
+      const post = posts.find(p => p.id === postId);
+      if (!post?.commentsData) {
+        setPosts(currentPosts => currentPosts.map(p => p.id === postId ? { ...p, isCommentsLoading: true } : p));
+        try {
+          const fetchedComments = await postService.getComments(postId);
+          setPosts(currentPosts => currentPosts.map(p => 
+            p.id === postId ? { ...p, commentsData: fetchedComments, isCommentsLoading: false } : p
+          ));
+        } catch (error) {
+          console.error('Error fetching comments', error);
+          setPosts(currentPosts => currentPosts.map(p => p.id === postId ? { ...p, isCommentsLoading: false } : p));
+        }
+      }
+    }
+  };
+
+  const handleCommentSubmit = async (e: React.FormEvent, postId: string) => {
+    e.preventDefault();
+    const commentText = commentInputs[postId] || '';
+    if (!commentText.trim()) return;
+
+    try {
+      const newComment = await postService.addComment(postId, commentText);
+      setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+      
+      setPosts(currentPosts => currentPosts.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            commentsData: [...(p.commentsData || []), newComment],
+            _count: { ...p._count, comments: (p._count?.comments || 0) + 1 }
+          };
+        }
+        return p;
+      }));
+    } catch (error) {
+      console.error('Error adding comment', error);
+      alert('Gagal menambahkan komentar');
     }
   };
 
@@ -377,11 +477,17 @@ export default function HomePage() {
                 {/* Post Metrics / Actions Divider */}
                 <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-gray-500">
                   <div className="flex gap-4">
-                    <button className="flex items-center gap-1.5 hover:text-blue-600 transition-colors text-sm font-medium p-1 rounded hover:bg-blue-50">
-                      <Heart size={18} />
-                      <span>Suka</span>
+                    <button 
+                      onClick={() => handleLikePost(post.id)}
+                      className={`flex items-center gap-1.5 transition-colors text-sm font-medium p-1 rounded hover:bg-blue-50 ${post.hasLiked ? 'text-blue-600' : 'hover:text-blue-600'}`}
+                    >
+                      <Heart size={18} fill={post.hasLiked ? "currentColor" : "none"} />
+                      <span>Suka {post.upvotes > 0 ? `(${post.upvotes})` : ''}</span>
                     </button>
-                    <button className="flex items-center gap-1.5 hover:text-blue-600 transition-colors text-sm font-medium p-1 rounded hover:bg-blue-50">
+                    <button 
+                      onClick={() => handleToggleComments(post.id)}
+                      className={`flex items-center gap-1.5 hover:text-blue-600 transition-colors text-sm font-medium p-1 rounded hover:bg-blue-50 ${expandedComments[post.id] ? 'bg-blue-50 text-blue-600' : ''}`}
+                    >
                       <MessageCircle size={18} />
                       <span>{post._count?.comments || 0} Komentar</span>
                     </button>
@@ -391,6 +497,79 @@ export default function HomePage() {
                     <span>Bagikan</span>
                   </button>
                 </div>
+                
+                {/* Comments Section */}
+                {expandedComments[post.id] && (
+                  <div className="px-4 py-3 bg-white border-t border-gray-100">
+                    {/* Comment Input */}
+                    <form onSubmit={(e) => handleCommentSubmit(e, post.id)} className="flex gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0 mt-0.5">
+                        {user?.avatarUrl ? (
+                          <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-500 font-bold uppercase text-xs">
+                            {(user?.fullName || user?.username || '?')[0]}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 flex px-3 py-1.5 bg-gray-100 rounded-2xl items-center focus-within:ring-1 focus-within:ring-blue-500">
+                        <input
+                          type="text"
+                          placeholder="Tulis komentar publik..."
+                          className="flex-1 bg-transparent border-none focus:outline-none text-sm min-w-0"
+                          value={commentInputs[post.id] || ''}
+                          onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                        />
+                        <button 
+                          type="submit" 
+                          disabled={!commentInputs[post.id]?.trim()}
+                          className="text-blue-600 disabled:text-gray-400 p-1 hover:bg-gray-200 rounded-full transition-colors shrink-0 ml-1"
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Comments List */}
+                    {post.isCommentsLoading ? (
+                      <div className="flex justify-center py-4">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                      </div>
+                    ) : post.commentsData && post.commentsData.length > 0 ? (
+                      <div className="space-y-3 pl-2">
+                        {post.commentsData.map(comment => (
+                          <div key={comment.id} className="flex gap-2">
+                            <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0">
+                               {comment.user?.avatarUrl ? (
+                                  <img src={comment.user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                               ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-gray-600 font-bold uppercase text-xs">
+                                     {(comment.user?.fullName || comment.user?.username || '?')[0]}
+                                  </div>
+                               )}
+                            </div>
+                            <div>
+                               <div className="bg-gray-100 rounded-2xl px-3 py-2 inline-block">
+                                  <span className="font-semibold text-gray-900 text-xs block mb-0.5 hover:underline cursor-pointer">
+                                     {comment.user?.fullName || comment.user?.username}
+                                  </span>
+                                  <span className="text-gray-800 text-sm wrap-break-word">
+                                     {comment.content}
+                                  </span>
+                               </div>
+                               <div className="text-[11px] text-gray-500 mt-1 ml-2">
+                                  {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: id })}
+                               </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center text-sm text-gray-500 py-3">Belum ada komentar</div>
+                    )}
+                  </div>
+                )}
+
               </div>
             ))}
           </div>

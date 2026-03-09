@@ -4,6 +4,7 @@ import { getUserFromRequest } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
     try {
+        const user = await getUserFromRequest(request);
         const { searchParams } = new URL(request.url);
         const lat = searchParams.get('lat');
         const lng = searchParams.get('lng');
@@ -47,11 +48,24 @@ export async function GET(request: NextRequest) {
                 },
                 _count: {
                     select: { comments: true }
-                }
+                },
+                ...(user ? {
+                    votes: {
+                        where: { userId: user.userId }
+                    }
+                } : {})
             },
         });
 
-        return NextResponse.json(posts);
+        const formattedPosts = posts.map((post: any) => {
+            const { votes, ...rest } = post;
+            return {
+                ...rest,
+                hasLiked: votes && votes.length > 0 ? true : false,
+            };
+        });
+
+        return NextResponse.json(formattedPosts);
     } catch (error) {
         console.error('Error fetching posts:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
