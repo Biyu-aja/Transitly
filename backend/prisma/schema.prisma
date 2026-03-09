@@ -1,0 +1,180 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  username      String    @unique
+  password      String?   // Optional for OAuth users
+  googleId      String?   @unique @map("google_id")
+  fullName      String?   @map("full_name")
+  avatarUrl     String?   @map("avatar_url")
+  bio           String?
+  location      String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  posts         Post[]
+  comments      Comment[]
+  votes         Vote[]
+  notifications Notification[]
+  sentMessages  Message[]
+  chatRooms     ChatParticipant[]
+  routes        Route[]
+
+  @@map("users")
+}
+
+model Post {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  title        String
+  content      String
+  category     String    // 'question', 'tip', 'discussion', 'alert'
+  tags         String[]
+  images       String[]
+  locationLat  Float?    @map("location_lat")
+  locationLng  Float?    @map("location_lng")
+  locationName String?   @map("location_name")
+  upvotes      Int       @default(0)
+  downvotes    Int       @default(0)
+  views        Int       @default(0)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments     Comment[]
+  votes        Vote[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  postId    String    @map("post_id")
+  userId    String    @map("user_id")
+  parentId  String?   @map("parent_id")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  votes     Vote[]
+
+  @@index([postId])
+  @@index([userId])
+  @@index([parentId])
+  @@map("comments")
+}
+
+model Vote {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  postId    String?  @map("post_id")
+  commentId String?  @map("comment_id")
+  voteType  Int      @map("vote_type") // 1 for upvote, -1 for downvote
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@unique([userId, commentId])
+  @@index([userId])
+  @@map("votes")
+}
+
+model ChatRoom {
+  id          String    @id @default(uuid())
+  name        String?
+  isGroup     Boolean   @default(false) @map("is_group")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  participants ChatParticipant[]
+  messages     Message[]
+
+  @@map("chat_rooms")
+}
+
+model ChatParticipant {
+  id        String   @id @default(uuid())
+  roomId    String   @map("room_id")
+  userId    String   @map("user_id")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+  @@map("chat_participants")
+}
+
+model Message {
+  id        String    @id @default(uuid())
+  roomId    String    @map("room_id")
+  userId    String    @map("user_id")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+
+  room      ChatRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([userId])
+  @@map("messages")
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  type       String   // 'comment', 'vote', 'message', 'mention'
+  content    String
+  relatedId  String?  @map("related_id")
+  isRead     Boolean  @default(false) @map("is_read")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model Route {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  name          String
+  description   String?
+  startLat      Float    @map("start_lat")
+  startLng      Float    @map("start_lng")
+  endLat        Float    @map("end_lat")
+  endLng        Float    @map("end_lng")
+  waypoints     Json?    // Array of {lat, lng, name}
+  transportModes String[] @map("transport_modes") // ['bus', 'train', 'walk']
+  estimatedTime Int?     @map("estimated_time") // in minutes
+  estimatedCost Float?   @map("estimated_cost")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("routes")
+}
