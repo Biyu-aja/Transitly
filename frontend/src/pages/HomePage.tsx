@@ -3,46 +3,11 @@ import { useAuthStore } from '../store/authStore';
 import { useNavigate, Link } from 'react-router-dom';
 
 import { postService } from '../lib/api';
-import { MapPin, MessageCircle, Heart, Share2, Image as ImageIcon, Navigation, Send, User as UserIcon } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { id } from 'date-fns/locale';
-
-interface Comment {
-  id: string;
-  content: string;
-  createdAt: string;
-  user: {
-    id: string;
-    username: string;
-    fullName: string;
-    avatarUrl: string | null;
-  };
-}
-
-interface Post {
-  id: string;
-  userId: string;
-  title: string;
-  content: string;
-  category: string;
-  locationName: string | null;
-  locationLat: number | null;
-  locationLng: number | null;
-  createdAt: string;
-  user: {
-    id: string;
-    username: string;
-    fullName: string;
-    avatarUrl: string | null;
-  };
-  hasLiked?: boolean;
-  upvotes: number;
-  commentsData?: Comment[];
-  isCommentsLoading?: boolean;
-  _count: {
-    comments: number;
-  };
-}
+import { MapPin, Image as ImageIcon, Navigation, User as UserIcon } from 'lucide-react';
+import { uploadImageToSupabase } from '../lib/supabase';
+import type { Post } from '../types/post';
+import PostCard from '../components/PostCard';
+import TrendingSidebar from '../components/TrendingSidebar';
 
 export default function HomePage() {
   const { user, clearAuth } = useAuthStore();
@@ -58,6 +23,8 @@ export default function HomePage() {
   const [locationName, setLocationName] = useState('');
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [coords, setCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Feed Filter State
   const [feedRadius, setFeedRadius] = useState<number | null>(null); // null means all locations
@@ -67,6 +34,7 @@ export default function HomePage() {
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPosts();
@@ -96,7 +64,7 @@ export default function HomePage() {
     setIsGettingLocation(true);
     
     if (!('geolocation' in navigator)) {
-      alert('Browser Anda tidak mendukung fitur lokasi (Geolocation).');
+      alert('Geolocation tidak didukung di browser ini.');
       setIsGettingLocation(false);
       return;
     }
@@ -172,27 +140,65 @@ export default function HomePage() {
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim()) return;
+    if (!content.trim() && uploadedImageUrls.length === 0) return;
     
     try {
       const newPost = await postService.createPost({
-        title: title || 'Update', // Default title if empty
         content,
+        title: title || 'Post Baru',
         category,
-        locationName,
         locationLat: coords?.lat,
         locationLng: coords?.lng,
+        locationName,
+        images: uploadedImageUrls.length > 0 ? uploadedImageUrls : []
       });
       newPost.upvotes = 0;
       newPost.hasLiked = false;
       setPosts([newPost, ...posts]);
       setContent('');
       setTitle('');
+      setCategory('discussion');
       setLocationName('');
       setCoords(null);
+      setUploadedImageUrls([]);
     } catch (error) {
       console.error('Failed to create post', error);
       alert('Gagal membuat postingan');
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files || files.length === 0) return;
+
+    // Check limit
+    if (uploadedImageUrls.length + files.length > 4) {
+      alert('Maksimal hanya bisa mengunggah 4 gambar dalam satu post.');
+      return;
+    }
+
+    // Size limit check per file
+    const oversizedFile = files.find(f => f.size > 5 * 1024 * 1024);
+    if (oversizedFile) {
+      alert(`File "${oversizedFile.name}" terlalu besar! Maksimal 5MB per gambar.`);
+      return;
+    }
+
+    try {
+      setIsUploadingImage(true);
+      
+      const newUrls = await Promise.all(
+        files.map(file => uploadImageToSupabase(file))
+      );
+      
+      setUploadedImageUrls(prev => [...prev, ...newUrls]);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('Gagal mengunggah gambar. Pastikan API key Supabase Anda terseting baik di .env.local');
+    } finally {
+      setIsUploadingImage(false);
+      // Reset the file input so the same files can trigger onChange again if needed
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -268,6 +274,19 @@ export default function HomePage() {
     }
   };
 
+  const handleDeletePost = async (postId: string) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus postingan ini?")) return;
+
+    try {
+      await postService.deletePost(postId);
+      setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
+      alert("Postingan berhasil dihapus");
+    } catch (error) {
+      console.error('Error deleting post', error);
+      alert('Gagal menghapus postingan');
+    }
+  };
+
   const trendingTags = posts.reduce((acc, post) => {
     const tags = post.content.match(/#[a-zA-Z0-9_]+/g);
     if (tags) {
@@ -291,24 +310,6 @@ export default function HomePage() {
   const handleTagClick = (tag: string) => {
     setSearchQuery(tag);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const renderTextWithHashtags = (text: string) => {
-    const parts = text.split(/(#[a-zA-Z0-9_]+)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('#')) {
-        return (
-          <span 
-            key={i} 
-            onClick={() => handleTagClick(part)}
-            className="text-brand-500 hover:underline cursor-pointer"
-          >
-            {part}
-          </span>
-        );
-      }
-      return <span key={i}>{part}</span>;
-    });
   };
 
   return (
@@ -455,6 +456,23 @@ export default function HomePage() {
               </div>
             )}
 
+            {uploadedImageUrls.length > 0 && (
+                <div className="flex gap-2 flex-wrap mb-2 mt-2 ml-12">
+                  {uploadedImageUrls.map((url, idx) => (
+                    <div key={idx} className="relative inline-block">
+                      <img src={url} alt={`Preview ${idx+1}`} className="h-24 w-auto rounded-lg object-cover border border-surface-hover shadow-sm" />
+                      <button 
+                         type="button" 
+                         onClick={() => setUploadedImageUrls(prev => prev.filter((_, i) => i !== idx))} 
+                         className="absolute -top-2 -right-2 bg-surface-main border border-border-light rounded-full p-1 shadow-md hover:bg-surface-hover transition-colors text-text-secondary z-10"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
             <div className="flex items-center justify-between px-4 py-3 border-t border-border-light mx-4">
               <div className="flex gap-1.5">
                 <button 
@@ -467,10 +485,15 @@ export default function HomePage() {
                   <MapPin size={22} className={isGettingLocation ? 'animate-bounce' : ''}  />
                   <span className="hidden sm:inline text-text-secondary font-semibold">{isGettingLocation ? 'Mencari...' : 'Lokasi'}</span>
                 </button>
-                <button type="button" className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#45bd62]">
-                  <ImageIcon size={22} />
-                  <span className="hidden sm:inline text-text-secondary font-semibold">Foto/Video</span>
-                </button>
+                <label className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#45bd62] cursor-pointer" title="Unggah dari perangkat">
+                  {isUploadingImage ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#45bd62]"></div>
+                  ) : (
+                    <ImageIcon size={22} />
+                  )}
+                  <span className="hidden sm:inline text-text-secondary font-semibold">{isUploadingImage ? 'Mengunggah...' : 'Foto/Video'}</span>
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
+                </label>
                 
                 {/* Clean Custom Select instead of border-outline */}
                 <div className="relative flex items-center">
@@ -489,8 +512,8 @@ export default function HomePage() {
 
               <button 
                 onClick={handleCreatePost} 
-                disabled={!content.trim()} 
-                className={`rounded-lg px-6 py-2 font-semibold text-[15px] transition-all ${content.trim() ? 'bg-brand-600 hover:bg-brand-700 text-white shadow-sm' : 'bg-surface-hover text-text-secondary/50 cursor-not-allowed'}`}
+                disabled={(!content.trim() && uploadedImageUrls.length === 0) || isUploadingImage} 
+                className={`rounded-lg px-6 py-2 font-semibold text-[15px] transition-all ml-auto block ${(content.trim() || uploadedImageUrls.length > 0) && !isUploadingImage ? 'bg-brand-600 hover:bg-brand-700 text-white shadow-sm' : 'bg-surface-hover text-text-secondary/50 cursor-not-allowed'}`}
               >
                 Posting
               </button>
@@ -520,273 +543,52 @@ export default function HomePage() {
           {/* Real Posts Feed */}
           <div className="space-y-6 pb-12">
             {filteredPosts.map(post => (
-              <div key={post.id} className="bg-surface-main/60 backdrop-blur-md rounded-3xl shadow-lg border border-surface-hover hover:border-brand-500/30 transition-all relative">
-                <div className="p-5">
-                  {/* Post Author / Header */}
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="flex gap-2.5">
-                      <div className="w-10 h-10 rounded-full bg-surface-hover border border-border-light overflow-hidden shrink-0 cursor-pointer">
-                        {post.user?.avatarUrl ? (
-                           <img src={post.user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-                        ) : (
-                           <UserIcon className="text-text-secondary w-3/5 h-3/5" strokeWidth={2} />
-                        )}
-                      </div>
-                      <div className="flex flex-col -mt-0.5">
-                        <div className="flex items-center flex-wrap">
-                          <h4 className="font-semibold text-text-primary text-[15px] hover:underline cursor-pointer tracking-tight">
-                            {post.user?.fullName || post.user?.username}
-                          </h4>
-                        </div>
-                        <div className="flex items-center text-[13px] text-text-secondary gap-1">
-                          <span className="hover:underline cursor-pointer">
-                            {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: id })}
-                          </span>
-                          {post.locationName && (
-                            <>
-                              <span>·</span>
-                              <div className="flex items-center text-text-secondary hover:text-brand-600 cursor-pointer hover:underline mb-0.5">
-                                <MapPin size={10} className="mr-0.5 mt-0.5" fill="currentColor" />
-                                <span>{post.locationName}</span>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Meta Dot icon representing menu */}
-                    <div className="relative">
-                      <div 
-                        onClick={() => setActiveDropdown(activeDropdown === post.id ? null : post.id)}
-                        className="w-8 h-8 rounded-full hover:bg-surface-hover flex items-center justify-center cursor-pointer -mr-2 text-text-secondary transition-colors"
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
-                      </div>
-
-                      {/* Dropdown Menu */}
-                      {activeDropdown === post.id && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-40"
-                            onClick={() => setActiveDropdown(null)}
-                          />
-                          <div className="absolute right-0 top-10 w-48 bg-surface-main/90 backdrop-blur-md rounded-xl shadow-xl border border-surface-hover py-1.5 z-50 overflow-hidden">
-                            <button 
-                              onClick={() => { alert('Disimpan!'); setActiveDropdown(null); }}
-                              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-surface-hover transition-colors font-medium flex items-center gap-2"
-                            >
-                              <Heart size={16} /> Simpan Postingan
-                            </button>
-                            <button 
-                              onClick={() => { alert('Postingan disembunyikan'); setActiveDropdown(null); }}
-                              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-surface-hover transition-colors font-medium flex items-center gap-2"
-                            >
-                              <span className="opacity-0 w-4"></span> Sembunyikan
-                            </button>
-                            {post.userId === user?.id && (
-                              <button 
-                                onClick={() => { alert('Fitur hapus belum tersedia'); setActiveDropdown(null); }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors font-medium flex items-center gap-2"
-                              >
-                                <span className="opacity-0 w-4"></span> Hapus
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="mt-1 mb-2 wrap-break-word whitespace-pre-wrap text-[15px] leading-[1.35] text-text-primary tracking-normal">
-                    {post.category !== 'discussion' && (
-                      <span className={`inline-block mr-2 mb-1 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-sm border ${
-                        post.category === 'alert' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
-                        post.category === 'question' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                        post.category === 'tip' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                        'bg-surface-hover text-text-secondary border-border-light'
-                      }`}>
-                        {post.category === 'alert' ? 'Peringatan Macet' :
-                         post.category === 'question' ? 'Tanya' : 'Tips'}
-                       </span>
-                    )}
-                    {renderTextWithHashtags(post.content)}
-                  </div>
-                </div>
-
-                {/* Engagement Numbers */}
-                {(post.upvotes > 0 || (post._count?.comments > 0)) && (
-                  <div className="px-4 py-2.5 flex items-center justify-between text-text-secondary text-[13px] border-b border-border-light mx-4">
-                    <div className="flex items-center gap-1.5 cursor-pointer hover:underline">
-                      {post.upvotes > 0 && (
-                        <>
-                          <div className="w-4 h-4 bg-brand-600 rounded-full flex items-center justify-center p-[3px]">
-                           <Heart fill="white" stroke="white" strokeWidth={1}/>
-                          </div>
-                          <span>{post.upvotes}</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex gap-3 cursor-pointer">
-                      {post._count?.comments > 0 && <span className="hover:underline">{post._count.comments} komentar</span>}
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="px-5 pb-4 pt-1 flex items-center justify-between gap-3">
-                  <button 
-                    onClick={() => handleLikePost(post.id)}
-                    className={`flex-1 flex items-center justify-center gap-2 font-semibold text-[14px] py-2 rounded-full transition-all ${post.hasLiked ? 'text-brand-500 bg-brand-500/10' : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}`}
-                  >
-                    <Heart size={20} className={post.hasLiked ? '' : ''} fill={post.hasLiked ? 'currentColor' : 'none'} strokeWidth={post.hasLiked ? 0 : 2}/>
-                    <span>Suka</span>
-                  </button>
-                  <button 
-                    onClick={() => handleToggleComments(post.id)}
-                    className={`flex-1 flex items-center justify-center gap-2 font-semibold text-[14px] py-2 rounded-full transition-all ${expandedComments[post.id] ? 'bg-surface-hover text-text-primary' : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}`}
-                  >
-                    <MessageCircle size={20} strokeWidth={2} />
-                    <span>Komentar</span>
-                  </button>
-                  <button className="flex-1 flex items-center justify-center gap-2 font-semibold text-[14px] py-2 rounded-full transition-all text-text-secondary hover:bg-surface-hover hover:text-text-primary">
-                    <Share2 size={20} strokeWidth={2} />
-                    <span>Bagikan</span>
-                  </button>
-                </div>
-                
-                {/* Expanded Comments Panel Wrapper */}
-                {expandedComments[post.id] && (
-                  <div className="px-5 pb-5 pt-4 bg-surface-subtle/40 border-t border-surface-hover">
-                    
-                    {/* View More Text */}
-                    {post.commentsData && post.commentsData.length > 3 && (
-                      <div className="font-semibold text-[14px] text-text-secondary hover:underline cursor-pointer mb-2">Lihat komentar sebelumnya</div>
-                    )}
-
-                    {/* Render existing comments properly sorted */}
-                    {post.isCommentsLoading ? (
-                      <div className="flex justify-center py-2 mb-2">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-brand-600"></div>
-                      </div>
-                    ) : post.commentsData && post.commentsData.length > 0 && (
-                      <div className="space-y-2 mb-3">
-                        {post.commentsData.map(comment => (
-                          <div key={comment.id} className="flex gap-2.5 items-start group">
-                            <div className="w-8 h-8 rounded-full border border-border-light overflow-hidden shrink-0 mt-0.5 cursor-pointer hover:opacity-90">
-                               {comment.user?.avatarUrl ? (
-                                  <img src={comment.user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-                               ) : (
-                                  <div className="w-full h-full bg-surface-hover flex items-center justify-center text-text-secondary">
-                                     <UserIcon className="w-3/5 h-3/5" strokeWidth={2} />
-                                  </div>
-                               )}
-                            </div>
-                            <div className="flex flex-col">
-                               <div className="bg-surface-hover rounded-2xl rounded-tl-sm px-3.5 pt-2 pb-2.5 inline-block">
-                                  <span className="font-semibold text-text-primary text-[13px] block mb-0 cursor-pointer hover:underline tracking-tight">
-                                     {comment.user?.fullName || comment.user?.username}
-                                  </span>
-                                  <span className="text-text-primary text-[15px] wrap-break-word">
-                                     {renderTextWithHashtags(comment.content)}
-                                  </span>
-                               </div>
-                               <div className="flex items-center text-[12px] font-semibold text-text-secondary mt-1 ml-2 gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <span className="hover:underline cursor-pointer text-text-primary">Suka</span>
-                                  <span className="hover:underline cursor-pointer text-text-primary">Balas</span>
-                                  <span className="font-normal opacity-80">{formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: id })}</span>
-                               </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Fixed new comment input component - matching FB format */}
-                    <form onSubmit={(e) => handleCommentSubmit(e, post.id)} className="flex gap-2">
-                      <div className="w-8 h-8 rounded-full border border-border-light overflow-hidden shrink-0">
-                        {user?.avatarUrl ? (
-                          <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-surface-hover flex items-center justify-center text-text-secondary">
-                            <UserIcon className="w-3/5 h-3/5" strokeWidth={2} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 flex px-3.5 py-2 bg-surface-hover rounded-2xl items-center">
-                        <input
-                          type="text"
-                          placeholder="Beri komentar sebagai pencinta transportasi umum..."
-                          className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] min-w-0 placeholder:text-text-secondary"
-                          value={commentInputs[post.id] || ''}
-                          onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
-                        />
-                        <button 
-                          type="submit" 
-                          disabled={!commentInputs[post.id]?.trim()}
-                          className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 ml-1 transition-colors ${commentInputs[post.id]?.trim() ? 'text-brand-600 hover:bg-brand-50' : 'text-text-secondary/50 cursor-not-allowed'}`}
-                        >
-                          <Send size={16} />
-                        </button>
-                      </div>
-                    </form>
-
-                  </div>
-                )}
-              </div>
+              <PostCard
+                key={post.id}
+                post={post}
+                user={user}
+                isExpanded={!!expandedComments[post.id]}
+                activeDropdown={activeDropdown}
+                commentInput={commentInputs[post.id] || ''}
+                onLike={() => handleLikePost(post.id)}
+                onToggleComments={() => handleToggleComments(post.id)}
+                onCommentChange={(val) => setCommentInputs(prev => ({ ...prev, [post.id]: val }))}
+                onCommentSubmit={(e) => handleCommentSubmit(e, post.id)}
+                onToggleDropdown={() => setActiveDropdown(activeDropdown === post.id ? null : post.id)}
+                onImageClick={setSelectedImage}
+                onTagClick={handleTagClick}
+                onDelete={() => handleDeletePost(post.id)}
+              />
             ))}
           </div>
 
         </div>
 
         {/* Right Sidebar */}
-        <div className="hidden md:block w-[280px] xl:w-[350px] pr-2 xl:pr-4 pl-4 shrink-0">
-          <div className="sticky top-[80px]">
-            <h3 className="font-semibold text-text-secondary mb-3 px-2 text-[17px]">Bersponsor</h3>
-            <div className="mb-6 space-y-4 px-2">
-               {/* Dummy Sponsors matching Meta format */}
-               <div className="flex items-center gap-3 cursor-pointer group">
-                  <div className="w-28 h-28 bg-surface-hover rounded-xl overflow-hidden shadow-sm shrink-0 flex items-center justify-center group-hover:opacity-95 transition-opacity">
-                     <svg className="w-8 h-8 text-text-secondary opacity-30" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.103 0-2 .897-2 2v14c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2V5c0-1.103-.897-2-2-2zm0 16H5z"></path></svg>
-                  </div>
-                  <div>
-                     <h4 className="font-semibold text-text-primary text-[15px] group-hover:underline">Beli Tiket KAI Tanpa Antre</h4>
-                     <p className="text-[13px] text-text-secondary">tiket.indonesia.go</p>
-                  </div>
-               </div>
-               <div className="flex items-center gap-3 cursor-pointer group">
-                  <div className="w-28 h-28 bg-surface-hover rounded-xl overflow-hidden shadow-sm shrink-0 flex items-center justify-center group-hover:opacity-95 transition-opacity">
-                     <svg className="w-8 h-8 text-text-secondary opacity-30" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.103 0-2 .897-2 2v14c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2V5c0-1.103-.897-2-2-2zm0 16H5z"></path></svg>
-                  </div>
-                  <div>
-                     <h4 className="font-semibold text-text-primary text-[15px] group-hover:underline">Promo TransJakarta Akhir Tahun</h4>
-                     <p className="text-[13px] text-text-secondary">transjakarta.co.id</p>
-                  </div>
-               </div>
-            </div>
-
-            <div className="h-px bg-border-light mx-2 mb-4"></div>
-
-            <h3 className="font-semibold text-text-secondary mb-3 px-2 text-[17px]">Topik Tren Perhubungan</h3>
-            <div className="space-y-1">
-              {sortedTags.length > 0 ? sortedTags.map(([tag, count]) => (
-                <div 
-                  key={tag} 
-                  onClick={() => handleTagClick(tag)}
-                  className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative"
-                >
-                  <p className="text-[13px] text-text-secondary mb-1">Tren Komuter • {count} postingan</p>
-                  <h4 className="font-semibold text-brand-500 text-[15px]">{tag}</h4>
-                </div>
-              )) : (
-                <div className="px-2.5 text-[13px] text-text-secondary">Belum ada hashtag tren.</div>
-              )}
-            </div>
-          </div>
-        </div>
+        <TrendingSidebar sortedTags={sortedTags} onTagClick={handleTagClick} />
 
       </main>
+
+      {/* Fullscreen Image Lightbox Modal */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-zoom-out"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button 
+             className="absolute md:top-6 md:right-8 top-4 right-4 bg-black/50 text-white rounded-full p-2.5 hover:bg-black/70 transition-colors"
+             onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Fullscreen preview" 
+            className="max-w-full max-h-full object-contain cursor-default select-none shadow-2xl rounded-sm"
+            onClick={(e) => e.stopPropagation()} // Prevent clicking image from closing modal
+          />
+        </div>
+      )}
     </div>
   );
 }

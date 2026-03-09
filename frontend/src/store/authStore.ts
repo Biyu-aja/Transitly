@@ -10,17 +10,34 @@ interface AuthState {
   updateUser: (user: User) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: localStorage.getItem('token'),
-  isAuthenticated: !!localStorage.getItem('token'),
-  setAuth: (user, token) => {
-    localStorage.setItem('token', token);
-    set({ user, token, isAuthenticated: true });
-  },
-  clearAuth: () => {
-    localStorage.removeItem('token');
-    set({ user: null, token: null, isAuthenticated: false });
-  },
-  updateUser: (user) => set({ user }),
-}));
+export const useAuthStore = create<AuthState>((set) => {
+  let initialUser = null;
+  try {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      initialUser = JSON.parse(storedUser);
+    }
+  } catch (e) {
+    console.warn('Failed to parse stored user data');
+  }
+
+  return {
+    user: initialUser,
+    token: localStorage.getItem('token'),
+    isAuthenticated: !!localStorage.getItem('token'),
+    setAuth: (user, token) => {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      set({ user, token, isAuthenticated: true });
+    },
+    clearAuth: () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      set({ user: null, token: null, isAuthenticated: false });
+    },
+    updateUser: (user) => {
+      localStorage.setItem('user', JSON.stringify(user));
+      set({ user });
+    },
+  };
+});

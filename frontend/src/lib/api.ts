@@ -48,6 +48,7 @@ export const postService = {
     locationLat?: number;
     locationLng?: number;
     locationName?: string;
+    images?: string[];
   }) => {
     const response = await api.post('/posts', data);
     return response.data;
@@ -58,6 +59,10 @@ export const postService = {
   },
   getComments: async (postId: string) => {
     const response = await api.get(`/posts/${postId}/comments`);
+    return response.data;
+  },
+  deletePost: async (postId: string) => {
+    const response = await api.delete(`/posts/${postId}`);
     return response.data;
   },
   addComment: async (postId: string, content: string) => {
