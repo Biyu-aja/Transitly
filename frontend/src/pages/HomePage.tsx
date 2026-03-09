@@ -49,6 +49,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // New Post State
   const [content, setContent] = useState('');
@@ -65,6 +66,7 @@ export default function HomePage() {
   // Interaction State
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPosts();
@@ -92,26 +94,62 @@ export default function HomePage() {
 
   const getCurrentLocation = () => {
     setIsGettingLocation(true);
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          setCoords({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-          setLocationName('Lokasi Saat Ini');
-          setIsGettingLocation(false);
-        },
-        (error) => {
-          console.error('Error getting location', error);
-          alert('Gagal mendapatkan lokasi. Pastikan izinkan akses lokasi.');
+    
+    if (!('geolocation' in navigator)) {
+      alert('Browser Anda tidak mendukung fitur lokasi (Geolocation).');
+      setIsGettingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setCoords({ lat: latitude, lng: longitude });
+
+        try {
+          // Reverse Geocoding via OpenStreetMap/Nominatim Public API
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
+          const data = await response.json();
+          
+          if (data && data.address) {
+            // Extracts best readable location name (Station/Road -> Neighborhood -> City)
+            const placeName = data.address.railway || data.address.station || data.address.road || data.address.neighbourhood || data.address.suburb || data.address.city;
+            setLocationName(placeName ? `${placeName}, ${data.address.city || data.address.state}` : 'Lokasi Anda');
+          } else {
+            setLocationName('Titik GPS Anda Set');
+          }
+        } catch (error) {
+          console.error('Error reverse geocoding:', error);
+          setLocationName('Titik Koordinat Diset');
+        } finally {
           setIsGettingLocation(false);
         }
-      );
-    } else {
-      alert('Geolocation tidak didukung di browser ini.');
-      setIsGettingLocation(false);
-    }
+      },
+      (error) => {
+        console.error('Error getting location', error);
+        setIsGettingLocation(false);
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            alert('Akses lokasi ditolak. Silakan izinkan akses lokasi dari pengaturan browser Anda (ikon GEMBOK di address bar kiri atas) untuk menggunakan fitur ini.');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            alert('Informasi lokasi tidak tersedia saat ini. Pastikan GPS/Internet Anda menyala.');
+            break;
+          case error.TIMEOUT:
+            alert('Permintaan lokasi terlalu lama (timeout). Silakan coba lagi.');
+            break;
+          default:
+            alert('Terjadi kesalahan yang tidak diketahui saat mengambil lokasi.');
+            break;
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
   };
 
   const handleUseCurrentLocationForFeed = () => {
@@ -230,6 +268,49 @@ export default function HomePage() {
     }
   };
 
+  const trendingTags = posts.reduce((acc, post) => {
+    const tags = post.content.match(/#[a-zA-Z0-9_]+/g);
+    if (tags) {
+      tags.forEach(tag => {
+        acc[tag] = (acc[tag] || 0) + 1;
+      });
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  const sortedTags = Object.entries(trendingTags)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  const filteredPosts = posts.filter(post => 
+    post.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (post.user?.fullName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (post.user?.username?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+  );
+
+  const handleTagClick = (tag: string) => {
+    setSearchQuery(tag);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const renderTextWithHashtags = (text: string) => {
+    const parts = text.split(/(#[a-zA-Z0-9_]+)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        return (
+          <span 
+            key={i} 
+            onClick={() => handleTagClick(part)}
+            className="text-brand-500 hover:underline cursor-pointer"
+          >
+            {part}
+          </span>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-bg-body font-sans text-text-primary">
       {/* Top Navbar */}
@@ -250,6 +331,8 @@ export default function HomePage() {
               type="text" 
               placeholder="Cari lokasi, halte, stasiun, atau grup..." 
               className="w-full bg-surface-hover border-none rounded-full py-2.5 pl-10 pr-4 text-sm font-normal text-text-primary focus:ring-2 focus:ring-brand-500 focus:bg-surface-main transition-colors outline-none"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
@@ -379,6 +462,7 @@ export default function HomePage() {
                   onClick={getCurrentLocation}
                   disabled={isGettingLocation}
                   className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#f5533d] disabled:opacity-50"
+                  title="Lampirkan lokasi Anda"
                 >
                   <MapPin size={22} className={isGettingLocation ? 'animate-bounce' : ''}  />
                   <span className="hidden sm:inline text-text-secondary font-semibold">{isGettingLocation ? 'Mencari...' : 'Lokasi'}</span>
@@ -421,22 +505,22 @@ export default function HomePage() {
           )}
 
           {/* Empty state component */}
-          {!loading && posts.length === 0 && (
+          {!loading && filteredPosts.length === 0 && (
             <div className="bg-surface-main rounded-xl p-12 text-center border border-border-light shadow-sm">
               <div className="w-20 h-20 bg-surface-hover rounded-full flex items-center justify-center mx-auto mb-4">
                 <MapPin size={36} className="text-text-secondary opcaity-50" />
               </div>
               <h3 className="text-xl font-bold text-text-primary mb-2">Tidak Ada Postingan</h3>
               <p className="text-text-secondary">
-                {feedRadius ? "Tidak ada konten yang relevan di sekitar Anda." : "Jadilah yang pertama untuk berbagi informasi di Transitly!"}
+                {searchQuery ? `Pencarian "${searchQuery}" tidak membuahkan hasil.` : feedRadius ? "Tidak ada konten yang relevan di sekitar Anda." : "Jadilah yang pertama untuk berbagi informasi di Transitly!"}
               </p>
             </div>
           )}
 
           {/* Real Posts Feed */}
           <div className="space-y-6 pb-12">
-            {posts.map(post => (
-              <div key={post.id} className="bg-surface-main/60 backdrop-blur-md rounded-3xl shadow-lg border border-surface-hover hover:border-brand-500/30 transition-all relative overflow-hidden">
+            {filteredPosts.map(post => (
+              <div key={post.id} className="bg-surface-main/60 backdrop-blur-md rounded-3xl shadow-lg border border-surface-hover hover:border-brand-500/30 transition-all relative">
                 <div className="p-5">
                   {/* Post Author / Header */}
                   <div className="flex items-start justify-between mb-1">
@@ -472,25 +556,62 @@ export default function HomePage() {
                     </div>
 
                     {/* Meta Dot icon representing menu */}
-                    <div className="w-8 h-8 rounded-full hover:bg-surface-hover flex items-center justify-center cursor-pointer -mr-2 text-text-secondary transition-colors">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+                    <div className="relative">
+                      <div 
+                        onClick={() => setActiveDropdown(activeDropdown === post.id ? null : post.id)}
+                        className="w-8 h-8 rounded-full hover:bg-surface-hover flex items-center justify-center cursor-pointer -mr-2 text-text-secondary transition-colors"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+                      </div>
+
+                      {/* Dropdown Menu */}
+                      {activeDropdown === post.id && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40"
+                            onClick={() => setActiveDropdown(null)}
+                          />
+                          <div className="absolute right-0 top-10 w-48 bg-surface-main/90 backdrop-blur-md rounded-xl shadow-xl border border-surface-hover py-1.5 z-50 overflow-hidden">
+                            <button 
+                              onClick={() => { alert('Disimpan!'); setActiveDropdown(null); }}
+                              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-surface-hover transition-colors font-medium flex items-center gap-2"
+                            >
+                              <Heart size={16} /> Simpan Postingan
+                            </button>
+                            <button 
+                              onClick={() => { alert('Postingan disembunyikan'); setActiveDropdown(null); }}
+                              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-surface-hover transition-colors font-medium flex items-center gap-2"
+                            >
+                              <span className="opacity-0 w-4"></span> Sembunyikan
+                            </button>
+                            {post.userId === user?.id && (
+                              <button 
+                                onClick={() => { alert('Fitur hapus belum tersedia'); setActiveDropdown(null); }}
+                                className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors font-medium flex items-center gap-2"
+                              >
+                                <span className="opacity-0 w-4"></span> Hapus
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
                   {/* Body Content */}
                   <div className="mt-1 mb-2 wrap-break-word whitespace-pre-wrap text-[15px] leading-[1.35] text-text-primary tracking-normal">
                     {post.category !== 'discussion' && (
-                      <span className={`inline-block mr-2 mb-1 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-sm ${
-                        post.category === 'alert' ? 'bg-red-100 text-red-700' : 
-                        post.category === 'question' ? 'bg-orange-100 text-orange-700' :
-                        post.category === 'tip' ? 'bg-green-100 text-green-700' :
-                        'bg-surface-hover text-text-secondary'
+                      <span className={`inline-block mr-2 mb-1 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-sm border ${
+                        post.category === 'alert' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
+                        post.category === 'question' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                        post.category === 'tip' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                        'bg-surface-hover text-text-secondary border-border-light'
                       }`}>
                         {post.category === 'alert' ? 'Peringatan Macet' :
                          post.category === 'question' ? 'Tanya' : 'Tips'}
                        </span>
                     )}
-                    {post.content}
+                    {renderTextWithHashtags(post.content)}
                   </div>
                 </div>
 
@@ -568,7 +689,7 @@ export default function HomePage() {
                                      {comment.user?.fullName || comment.user?.username}
                                   </span>
                                   <span className="text-text-primary text-[15px] wrap-break-word">
-                                     {comment.content}
+                                     {renderTextWithHashtags(comment.content)}
                                   </span>
                                </div>
                                <div className="flex items-center text-[12px] font-semibold text-text-secondary mt-1 ml-2 gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -645,22 +766,22 @@ export default function HomePage() {
                </div>
             </div>
 
-            <div className="h-[1px] bg-border-light mx-2 mb-4"></div>
+            <div className="h-px bg-border-light mx-2 mb-4"></div>
 
             <h3 className="font-semibold text-text-secondary mb-3 px-2 text-[17px]">Topik Tren Perhubungan</h3>
             <div className="space-y-1">
-              <div className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative">
-                <p className="text-[13px] text-text-secondary mb-1">Jakarta Selatan • 2.5k postingan</p>
-                <h4 className="font-semibold text-text-primary text-[15px]">#MacetSudirman</h4>
-              </div>
-              <div className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative">
-                <p className="text-[13px] text-text-secondary mb-1">KRL Commuter • 1.2k postingan</p>
-                <h4 className="font-semibold text-text-primary text-[15px]">Cikarang Line Gangguan</h4>
-              </div>
-              <div className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative">
-                <p className="text-[13px] text-text-secondary mb-1">Tips Transportasi • 800 postingan</p>
-                <h4 className="font-semibold text-text-primary text-[15px]">Lebih Cepat Lewat MRT</h4>
-              </div>
+              {sortedTags.length > 0 ? sortedTags.map(([tag, count]) => (
+                <div 
+                  key={tag} 
+                  onClick={() => handleTagClick(tag)}
+                  className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative"
+                >
+                  <p className="text-[13px] text-text-secondary mb-1">Tren Komuter • {count} postingan</p>
+                  <h4 className="font-semibold text-brand-500 text-[15px]">{tag}</h4>
+                </div>
+              )) : (
+                <div className="px-2.5 text-[13px] text-text-secondary">Belum ada hashtag tren.</div>
+              )}
             </div>
           </div>
         </div>

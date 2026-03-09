@@ -182,9 +182,9 @@ export default function RoutesPage() {
         {/* Central Route Column */}
         <div className="flex-1 max-w-[680px] w-full mx-auto px-2 sm:px-0">
           
-          <div className="bg-brand-50 rounded-xl p-4 mb-4 border border-brand-200">
-             <h2 className="text-lg font-bold text-brand-700 mb-1">Berbagi Rute Rahasia Komuter</h2>
-             <p className="text-sm text-brand-600">Publikasikan *jalan tikus* atau panduan cerdas menghindari macet ke sesama pejuang komuter.</p>
+          <div className="bg-brand-500/10 rounded-xl p-4 mb-4 border border-brand-500/20">
+             <h2 className="text-lg font-bold text-brand-400 mb-1">Berbagi Rute Rahasia Komuter</h2>
+             <p className="text-sm text-brand-300">Publikasikan jalan tikus atau panduan cerdas menghindari macet ke sesama pejuang komuter.</p>
           </div>
 
           {/* Create Route Card */}
@@ -312,11 +312,11 @@ export default function RoutesPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                     <span className="text-[12px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md bg-brand-50 text-brand-700 flex items-center gap-1">
+                     <span className="text-[12px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border border-brand-500/30 bg-brand-500/10 text-brand-400 flex items-center gap-1">
                         <MapPin size={12}/> {route.estimatedTime ? `Estimasi: ${route.estimatedTime} Menit` : 'Waktu Fleksibel'}
                      </span>
                      {route.transportModes?.length > 0 && route.transportModes.map(mode => (
-                        <span key={mode} className="text-[12px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md bg-green-50 text-green-700">
+                        <span key={mode} className="text-[12px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border border-green-500/30 bg-green-500/10 text-green-400">
                            {mode === 'bus' ? 'Busway' : mode === 'train' ? 'KRL/MRT' : mode === 'angkot' ? 'Mikrotrans' : 'Jalan Kaki'}
                         </span>
                      ))}
@@ -336,8 +336,8 @@ export default function RoutesPage() {
             <h3 className="font-bold text-text-primary mb-3 px-2 text-[17px]">Rute Populer Hari Ini</h3>
             <div className="space-y-1">
                <div className="hover:bg-surface-hover p-2.5 rounded-xl cursor-pointer transition-colors relative flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                     <span className="font-bold text-blue-700 text-xs text-center leading-tight">1</span>
+                  <div className="w-8 h-8 rounded-full border border-blue-500/30 bg-blue-500/10 flex items-center justify-center shrink-0">
+                     <span className="font-bold text-blue-400 text-xs text-center leading-tight">1</span>
                   </div>
                   <div>
                      <h4 className="font-semibold text-text-primary text-[14px] leading-tight mb-0.5">Sudirman - Tebet (Anti Macet)</h4>
