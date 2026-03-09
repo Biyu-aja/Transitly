@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { useNavigate, Link } from 'react-router-dom';
-
 import { postService } from '../lib/api';
-import { MapPin, Image as ImageIcon, Navigation, User as UserIcon } from 'lucide-react';
+import { MapPin, Image as ImageIcon, User as UserIcon } from 'lucide-react';
 import { uploadImageToSupabase } from '../lib/supabase';
 import type { Post } from '../types/post';
+import { useUIStore } from '../store/uiStore';
 import PostCard from '../components/PostCard';
-import TrendingSidebar from '../components/TrendingSidebar';
 
 export default function HomePage() {
-  const { user, clearAuth } = useAuthStore();
-  const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const { searchQuery, setSearchQuery, feedRadius, feedCoords, setTrendingTags } = useUIStore();
 
   // New Post State
   const [content, setContent] = useState('');
@@ -26,10 +23,6 @@ export default function HomePage() {
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  // Feed Filter State
-  const [feedRadius, setFeedRadius] = useState<number | null>(null); // null means all locations
-  const [feedCoords, setFeedCoords] = useState<{lat: number, lng: number} | null>(null);
-
   // Interaction State
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
@@ -39,6 +32,24 @@ export default function HomePage() {
   useEffect(() => {
     fetchPosts();
   }, [feedRadius, feedCoords]);
+
+  useEffect(() => {
+    const tagsMap = posts.reduce((acc, post) => {
+      const tags = post.content.match(/#[a-zA-Z0-9_]+/g);
+      if (tags) {
+        tags.forEach(tag => {
+          acc[tag] = (acc[tag] || 0) + 1;
+        });
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    setTrendingTags(
+       Object.entries(tagsMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+    );
+  }, [posts, setTrendingTags]);
 
   const fetchPosts = async () => {
     try {
@@ -53,11 +64,6 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLogout = () => {
-    clearAuth();
-    navigate('/login');
   };
 
   const getCurrentLocation = () => {
@@ -118,24 +124,6 @@ export default function HomePage() {
         maximumAge: 0
       }
     );
-  };
-
-  const handleUseCurrentLocationForFeed = () => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setFeedCoords({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-          setFeedRadius(10); // 10km radius by default
-        },
-        (error) => {
-          console.error(error);
-          alert('Gagal mendapatkan lokasi untuk filter feed.');
-        }
-      );
-    }
   };
 
   const handleCreatePost = async (e: React.FormEvent) => {
@@ -287,20 +275,6 @@ export default function HomePage() {
     }
   };
 
-  const trendingTags = posts.reduce((acc, post) => {
-    const tags = post.content.match(/#[a-zA-Z0-9_]+/g);
-    if (tags) {
-      tags.forEach(tag => {
-        acc[tag] = (acc[tag] || 0) + 1;
-      });
-    }
-    return acc;
-  }, {} as Record<string, number>);
-
-  const sortedTags = Object.entries(trendingTags)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-
   const filteredPosts = posts.filter(post => 
     post.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
     (post.user?.fullName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -312,121 +286,29 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const LightboxNode = selectedImage ? (
+    <div 
+      className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-zoom-out"
+      onClick={() => setSelectedImage(null)}
+    >
+      <button 
+         className="absolute md:top-6 md:right-8 top-4 right-4 bg-black/50 text-white rounded-full p-2.5 hover:bg-black/70 transition-colors"
+         onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      <img 
+        src={selectedImage} 
+        alt="Fullscreen preview" 
+        className="max-w-full max-h-full object-contain cursor-default select-none shadow-2xl rounded-sm"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  ) : null;
+
   return (
-    <div className="min-h-screen bg-bg-body font-sans text-text-primary">
-      {/* Top Navbar */}
-      <header className="bg-surface-main shadow-sm border-b border-border-light sticky top-0 z-50">
-        <div className="w-full px-4 h-[56px] flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 w-1/4 cursor-pointer">
-            <div className="w-10 h-10 bg-brand-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-sm cursor-pointer">
-              T
-            </div>
-            <h1 className="text-xl font-bold text-brand-600 hidden xl:block">Transitly</h1>
-          </Link>
-          
-          <div className="hidden md:flex flex-1 max-w-[680px] mx-auto relative group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-            </div>
-            <input 
-              type="text" 
-              placeholder="Cari lokasi, halte, stasiun, atau grup..." 
-              className="w-full bg-surface-hover border-none rounded-full py-2.5 pl-10 pr-4 text-sm font-normal text-text-primary focus:ring-2 focus:ring-brand-500 focus:bg-surface-main transition-colors outline-none"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 w-1/4">
-            <span className="text-sm font-semibold text-text-primary hidden sm:block truncate max-w-[120px]">
-              {user?.fullName || user?.username}
-            </span>
-            <div className="w-10 h-10 rounded-full bg-surface-hover overflow-hidden border border-border-light cursor-pointer hover:opacity-90 transition-opacity flex items-center justify-center shrink-0">
-              {user?.avatarUrl ? (
-                <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-              ) : (
-                <UserIcon className="text-text-secondary w-3/5 h-3/5" strokeWidth={2} />
-              )}
-            </div>
-            <div 
-              onClick={handleLogout}
-              className="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center cursor-pointer hover:bg-border-light transition-colors"
-              title="Keluar"
-            >
-              <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content Layout */}
-      <main className="w-full flex justify-between pt-4 lg:pt-6">
-        
-        {/* Left Sidebar Menu */}
-        <div className="hidden lg:block w-[280px] xl:w-[360px] pl-2 xl:pl-4 pr-4 shrink-0">
-          <div className="sticky top-[80px]">
-             {/* Profile Link Header */}
-            <div className="flex items-center gap-3 px-2 py-3 mb-2 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors">
-              <div className="w-9 h-9 rounded-full bg-surface-hover overflow-hidden border border-border-light flex items-center justify-center shrink-0">
-                {user?.avatarUrl ? (
-                  <img src={user.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <UserIcon className="text-text-secondary w-3/5 h-3/5" strokeWidth={2} />
-                )}
-              </div>
-              <span className="font-semibold text-[15px]">{user?.fullName || user?.username}</span>
-            </div>
-
-            <div className="h-px bg-border-light mx-2 mb-4"></div>
-            
-            <Link to="/" className="flex items-center gap-3 px-3 py-3 rounded-lg bg-surface-hover cursor-pointer transition-colors text-brand-600 mb-1">
-              <div className="bg-brand-500 border border-border-light w-9 h-9 rounded-full flex items-center justify-center text-white shadow-sm">
-                <Navigation size={18} fill="none" strokeWidth={2.5} />
-              </div>
-              <span className="font-semibold text-[15px]">Linimasa Utama</span>
-            </Link>
-             
-            <Link to="/routes" className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors text-text-primary mb-4">
-              <div className="bg-surface-main w-9 h-9 rounded-full flex items-center justify-center shadow-sm border border-border-light text-text-secondary">
-                <MapPin size={18} fill="currentColor" />
-              </div>
-              <span className="font-semibold text-[15px]">Rute Alternatif</span>
-            </Link>
-
-            <div className="h-px bg-border-light mx-2 mb-4"></div>
-
-            <h3 className="font-semibold text-text-secondary mb-2 px-3 text-[17px]">Filter Linimasa</h3>
-            <ul className="space-y-1">
-              <li>
-                <button 
-                  onClick={() => setFeedRadius(null)}
-                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${feedRadius === null ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-                >
-                  <div className="bg-brand-500 w-9 h-9 rounded-full flex items-center justify-center text-white"><Navigation size={20} fill="currentColor" /></div>
-                  <span className="font-semibold text-[15px]">Tampilan Global</span>
-                </button>
-              </li>
-              <li>
-                <button 
-                  onClick={handleUseCurrentLocationForFeed}
-                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${feedRadius !== null ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-                >
-                  <div className="bg-green-500 w-9 h-9 rounded-full flex items-center justify-center text-white"><MapPin size={20} fill="currentColor" /></div>
-                  <span className="font-semibold text-[15px]">Di Sekitar Saya {feedRadius && `(${feedRadius}km)`}</span>
-                </button>
-              </li>
-            </ul>
-             
-             <div className="mt-8 px-3 text-xs text-text-secondary opacity-70">
-                Privasi · Ketentuan · Iklan · Cookie · Lebih Lanjut © 2026 Transitly Inc.
-             </div>
-          </div>
-        </div>
-
-        {/* Central Feed Column */}
-        <div className="flex-1 max-w-[680px] w-full mx-auto px-2 sm:px-0">
-          
-          {/* Create Post Card */}
+    <>
+      {/* Create Post Card */}
           <div className="bg-surface-main/60 backdrop-blur-xl rounded-3xl border border-surface-hover hover:border-brand-500/30 transition-all p-5 mb-8 shadow-lg">
             <div className="flex gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-surface-hover border border-border-light shrink-0 overflow-hidden flex items-center justify-center">
@@ -562,33 +444,7 @@ export default function HomePage() {
             ))}
           </div>
 
-        </div>
-
-        {/* Right Sidebar */}
-        <TrendingSidebar sortedTags={sortedTags} onTagClick={handleTagClick} />
-
-      </main>
-
-      {/* Fullscreen Image Lightbox Modal */}
-      {selectedImage && (
-        <div 
-          className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-zoom-out"
-          onClick={() => setSelectedImage(null)}
-        >
-          <button 
-             className="absolute md:top-6 md:right-8 top-4 right-4 bg-black/50 text-white rounded-full p-2.5 hover:bg-black/70 transition-colors"
-             onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-          <img 
-            src={selectedImage} 
-            alt="Fullscreen preview" 
-            className="max-w-full max-h-full object-contain cursor-default select-none shadow-2xl rounded-sm"
-            onClick={(e) => e.stopPropagation()} // Prevent clicking image from closing modal
-          />
-        </div>
-      )}
-    </div>
+      {LightboxNode}
+    </>
   );
 }

@@ -9,6 +9,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import RoutesPage from './pages/RoutesPage';
+import MainLayout from './components/MainLayout';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,22 +36,10 @@ function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
-              <Route
-                path="/"
-                element={
-                  <PrivateRoute>
-                    <HomePage />
-                  </PrivateRoute>
-                }
-              />
-              <Route
-                path="/routes"
-                element={
-                  <PrivateRoute>
-                    <RoutesPage />
-                  </PrivateRoute>
-                }
-              />
+              <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/routes" element={<RoutesPage />} />
+              </Route>
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </div>
