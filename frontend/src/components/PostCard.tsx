@@ -18,6 +18,7 @@ interface PostCardProps {
   onToggleDropdown: () => void;
   onImageClick: (url: string) => void;
   onTagClick: (tag: string) => void;
+  onLocationClick?: (locationName: string) => void;
   onDelete: () => void;
 }
 
@@ -34,6 +35,7 @@ export default function PostCard({
   onToggleDropdown,
   onImageClick,
   onTagClick,
+  onLocationClick,
   onDelete
 }: PostCardProps) {
 
@@ -82,7 +84,10 @@ export default function PostCard({
                 {post.locationName && (
                   <>
                     <span>·</span>
-                    <div className="flex items-center text-text-secondary hover:text-brand-600 cursor-pointer hover:underline mb-0.5">
+                    <div
+                      className="flex items-center text-text-secondary hover:text-brand-600 cursor-pointer hover:underline mb-0.5"
+                      onClick={() => onLocationClick?.(post.locationName!)}
+                    >
                       <MapPin size={10} className="mr-0.5 mt-0.5" fill="currentColor" />
                       <span>{post.locationName}</span>
                     </div>

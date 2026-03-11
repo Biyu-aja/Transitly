@@ -6,6 +6,7 @@ import { uploadImageToSupabase } from '../lib/supabase';
 import type { Post } from '../types/post';
 import { useUIStore } from '../store/uiStore';
 import PostCard from '../components/PostCard';
+import LocationPickerModal from '../components/LocationPickerModal';
 
 export default function HomePage() {
   const { user } = useAuthStore();
@@ -18,7 +19,7 @@ export default function HomePage() {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('discussion');
   const [locationName, setLocationName] = useState('');
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [coords, setCoords] = useState<{lat: number, lng: number} | null>(null);
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -66,73 +67,28 @@ export default function HomePage() {
     }
   };
 
-  const getCurrentLocation = () => {
-    setIsGettingLocation(true);
-    
-    if (!('geolocation' in navigator)) {
-      alert('Geolocation tidak didukung di browser ini.');
-      setIsGettingLocation(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        setCoords({ lat: latitude, lng: longitude });
-
-        try {
-          // Reverse Geocoding via OpenStreetMap/Nominatim Public API
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
-          const data = await response.json();
-          
-          if (data && data.address) {
-            // Extracts best readable location name (Station/Road -> Neighborhood -> City)
-            const placeName = data.address.railway || data.address.station || data.address.road || data.address.neighbourhood || data.address.suburb || data.address.city;
-            setLocationName(placeName ? `${placeName}, ${data.address.city || data.address.state}` : 'Lokasi Anda');
-          } else {
-            setLocationName('Titik GPS Anda Set');
-          }
-        } catch (error) {
-          console.error('Error reverse geocoding:', error);
-          setLocationName('Titik Koordinat Diset');
-        } finally {
-          setIsGettingLocation(false);
-        }
-      },
-      (error) => {
-        console.error('Error getting location', error);
-        setIsGettingLocation(false);
-        
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            alert('Akses lokasi ditolak. Silakan izinkan akses lokasi dari pengaturan browser Anda (ikon GEMBOK di address bar kiri atas) untuk menggunakan fitur ini.');
-            break;
-          case error.POSITION_UNAVAILABLE:
-            alert('Informasi lokasi tidak tersedia saat ini. Pastikan GPS/Internet Anda menyala.');
-            break;
-          case error.TIMEOUT:
-            alert('Permintaan lokasi terlalu lama (timeout). Silakan coba lagi.');
-            break;
-          default:
-            alert('Terjadi kesalahan yang tidak diketahui saat mengambil lokasi.');
-            break;
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
-  };
-
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() && uploadedImageUrls.length === 0) return;
+
+    // Automatically generate hashtag based on category
+    const categoryTags: Record<string, string> = {
+      'discussion': '#Diskusi',
+      'alert': '#Peringatan',
+      'question': '#TanyaRute',
+      'tip': '#TipsCepat'
+    };
+    
+    const autoTag = categoryTags[category];
+    let finalContent = content.trim();
+    
+    if (autoTag && !finalContent.toLowerCase().includes(autoTag.toLowerCase())) {
+      finalContent = finalContent ? `${finalContent}\n\n${autoTag}` : autoTag;
+    }
     
     try {
       const newPost = await postService.createPost({
-        content,
+        content: finalContent || content,
         title: title || 'Post Baru',
         category,
         locationLat: coords?.lat,
@@ -278,7 +234,8 @@ export default function HomePage() {
   const filteredPosts = posts.filter(post => 
     post.content.toLowerCase().includes(searchQuery.toLowerCase()) || 
     (post.user?.fullName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (post.user?.username?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+    (post.user?.username?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (post.locationName?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
   const handleTagClick = (tag: string) => {
@@ -330,10 +287,10 @@ export default function HomePage() {
             {/* Location display chip */}
             {locationName && (
               <div className="flex items-center gap-2 mb-2 px-4 ml-12">
-                <span className="text-xs font-semibold text-brand-600 bg-brand-50 border border-brand-100 px-3 py-1 rounded-full flex items-center gap-1.5">
-                  <MapPin size={12} fill="currentColor" className="text-brand-500" />
+                <span className="text-xs font-semibold text-brand-600 bg-brand-50 border border-brand-100 px-3 py-1 rounded-full flex items-center gap-1.5 cursor-pointer hover:bg-brand-100 transition-colors" onClick={() => setIsLocationModalOpen(true)}>
+                  <MapPin size={12} fill="currentColor" className="text-brand-500 shrink-0" />
                   Di {locationName}
-                  <button onClick={() => { setLocationName(''); setCoords(null); }} className="ml-1 text-text-secondary hover:text-red-500 rounded-full bg-white w-4 h-4 flex items-center justify-center" aria-label="Hapus lokasi">×</button>
+                  <button onClick={(e) => { e.stopPropagation(); setLocationName(''); setCoords(null); }} className="ml-1 text-text-secondary hover:text-red-500 rounded-full bg-white w-4 h-4 flex items-center justify-center transition-colors hover:bg-red-50" aria-label="Hapus lokasi">×</button>
                 </span>
               </div>
             )}
@@ -359,13 +316,12 @@ export default function HomePage() {
               <div className="flex gap-1.5">
                 <button 
                   type="button" 
-                  onClick={getCurrentLocation}
-                  disabled={isGettingLocation}
-                  className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#f5533d] disabled:opacity-50"
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#f5533d]"
                   title="Lampirkan lokasi Anda"
                 >
-                  <MapPin size={22} className={isGettingLocation ? 'animate-bounce' : ''}  />
-                  <span className="hidden sm:inline text-text-secondary font-semibold">{isGettingLocation ? 'Mencari...' : 'Lokasi'}</span>
+                  <MapPin size={22} />
+                  <span className="hidden sm:inline text-text-secondary font-semibold">Lokasi</span>
                 </button>
                 <label className="flex items-center gap-2 hover:bg-surface-hover px-3 py-2 rounded-lg transition-colors font-semibold text-sm text-[#45bd62] cursor-pointer" title="Unggah dari perangkat">
                   {isUploadingImage ? (
@@ -439,12 +395,22 @@ export default function HomePage() {
                 onToggleDropdown={() => setActiveDropdown(activeDropdown === post.id ? null : post.id)}
                 onImageClick={setSelectedImage}
                 onTagClick={handleTagClick}
+                onLocationClick={handleTagClick}
                 onDelete={() => handleDeletePost(post.id)}
               />
             ))}
           </div>
 
       {LightboxNode}
+      <LocationPickerModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+        defaultLocation={coords}
+        onSelect={(lat, lng, address) => {
+          setCoords({ lat, lng });
+          setLocationName(address);
+        }}
+      />
     </>
   );
 }

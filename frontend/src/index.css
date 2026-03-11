@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "leaflet/dist/leaflet.css";
 @import "tailwindcss";
 
 @theme {
@@ -64,4 +65,41 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fix Tailwind CSS overriding Leaflet map image tiles */
+.leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-container,
+.leaflet-pane > svg,
+.leaflet-pane > canvas,
+.leaflet-zoom-box,
+.leaflet-image-layer,
+.leaflet-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.leaflet-tile {
+  filter: none;
+  visibility: visible !important;
+}
+
+.leaflet-container .leaflet-control-zoom a {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+}
+
+.custom-leaflet-marker {
+  background: none !important;
+  border: none !important;
 }
