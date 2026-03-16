@@ -2,6 +2,7 @@ import React from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { Heart, MessageCircle, Share2, MapPin, Send, User as UserIcon } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import type { Post } from '../types/post';
 import type { User } from '../types';
 
@@ -153,7 +154,19 @@ export default function PostCard({
                 post.category === 'question' ? 'Tanya' : 'Tips'}
             </span>
           )}
-          {renderTextWithHashtags(post.content)}
+          
+          {post.title && post.title !== 'Post Baru' && (
+            <h3 className="text-xl font-bold mb-2 text-text-primary mt-1">{post.title}</h3>
+          )}
+          
+          <div 
+            className="prose prose-sm md:prose-base dark:prose-invert max-w-none prose-p:my-1 prose-a:text-brand-500 prose-img:rounded-xl"
+            dangerouslySetInnerHTML={{ 
+               __html: DOMPurify.sanitize(
+                 post.content.includes('<') ? post.content : post.content.replace(/\n/g, '<br/>')
+               ) 
+            }} 
+          />
         </div>
 
         {/* Masonry Images Feed */}

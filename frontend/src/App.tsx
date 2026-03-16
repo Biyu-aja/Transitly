@@ -9,6 +9,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import RoutesPage from './pages/RoutesPage';
+import CreatePostPage from './pages/CreatePostPage';
 import MainLayout from './components/MainLayout';
 
 const queryClient = new QueryClient({
@@ -38,6 +39,7 @@ function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/create-post" element={<CreatePostPage />} />
                 <Route path="/routes" element={<RoutesPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" />} />
