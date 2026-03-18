@@ -293,7 +293,7 @@ export default function LocationPickerModal({
       }}
     >
       <div
-        className="bg-surface-main w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-border-light flex flex-col max-h-[90vh]"
+        className="bg-surface-main w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl overflow-hidden border border-border-light flex flex-col"
         style={{ animation: 'modalSlideUp 0.25s ease-out' }}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
@@ -314,7 +314,7 @@ export default function LocationPickerModal({
         </div>
 
         {/* ── Body ────────────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col relative" style={{ minHeight: '400px' }}>
+        <div className="flex-1 flex flex-col relative">
           {/* Search Bar - Floating above the map */}
           <div className="absolute top-3 left-3 right-3 z-[1000]">
             <div className="relative">
@@ -399,7 +399,6 @@ export default function LocationPickerModal({
           <div
             ref={mapContainerRef}
             className="flex-1 w-full h-full"
-            style={{ minHeight: '350px' }}
           />
 
           {/* Selected Location Info Bar */}

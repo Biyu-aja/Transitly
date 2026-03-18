@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { postService } from '../lib/api';
-import { MapPin, Image as ImageIcon, User as UserIcon, ArrowLeft, Send, Sparkles, Navigation, AlertTriangle, MessageCircle, Lightbulb, Tag } from 'lucide-react';
+import { MapPin, Image as ImageIcon, User as UserIcon, ArrowLeft, Send, Sparkles, Navigation, AlertTriangle, MessageCircle, Lightbulb, Tag, Route as RouteIcon } from 'lucide-react';
 import { uploadImageToSupabase } from '../lib/supabase';
 import LocationPickerModal from '../components/LocationPickerModal';
+import RouteBuilder from '../components/RouteBuilder';
 import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -15,6 +16,22 @@ const CATEGORIES = [
   { id: 'question', label: 'Tanya Rute', icon: Navigation, color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
   { id: 'tip', label: 'Tips Cepat', icon: Lightbulb, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
 ];
+
+interface RouteInfo {
+  id: string;
+  name: string;
+  from: string;
+  fromLat?: number;
+  fromLng?: number;
+  to: string;
+  toLat?: number;
+  toLng?: number;
+  mode: string;
+  price: string;
+  duration: string;
+  distance: string;
+  notes: string;
+}
 
 export default function CreatePostPage() {
   const navigate = useNavigate();
@@ -31,11 +48,13 @@ export default function CreatePostPage() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [price, setPrice] = useState('');
+  const [routes, setRoutes] = useState<RouteInfo[]>([]);
+  const [showRouteBuilder, setShowRouteBuilder] = useState(false);
 
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() && uploadedImageUrls.length === 0) return;
+    if (!content.trim() && uploadedImageUrls.length === 0 && routes.length === 0) return;
 
     const categoryTags: Record<string, string> = {
       'discussion': '#Diskusi',
@@ -47,12 +66,44 @@ export default function CreatePostPage() {
     const autoTag = categoryTags[category];
     let finalContent = content.trim();
 
+    // Add route info to content
+    if (routes.length > 0) {
+      const routeText = routes.map((route, idx) => {
+        const modeEmojis: Record<string, string> = {
+          angkot: '🚐', bus: '🚌', krl: '🚆', mrt: '🚇',
+          transjakarta: '🚍', taksi: '🚕', ojek: '🏍️', walk: '🚶'
+        };
+        const emoji = modeEmojis[route.mode] || '🚐';
+        
+        let routeInfo = `\n\n**Rute ${idx + 1}:** ${emoji} ${route.mode.toUpperCase()}\n`;
+        routeInfo += `📍 ${route.from} → ${route.to}\n`;
+        if (route.price) routeInfo += `💰 Rp ${parseInt(route.price).toLocaleString('id-ID')}\n`;
+        if (route.duration) routeInfo += `⏱️ ${route.duration} menit`;
+        if (route.distance) routeInfo += ` • ${route.distance} km`;
+        if (route.duration || route.distance) routeInfo += '\n';
+        if (route.notes) routeInfo += `📝 ${route.notes}\n`;
+        
+        return routeInfo;
+      }).join('');
+      
+      finalContent = finalContent ? `${finalContent}${routeText}` : routeText;
+      
+      // Add summary if multiple routes
+      if (routes.length > 1) {
+        const totalPrice = routes.reduce((sum, r) => sum + (parseInt(r.price) || 0), 0);
+        const totalDuration = routes.reduce((sum, r) => sum + (parseInt(r.duration) || 0), 0);
+        finalContent += `\n\n**Total:** ${routes.length} rute`;
+        if (totalPrice > 0) finalContent += ` • Rp ${totalPrice.toLocaleString('id-ID')}`;
+        if (totalDuration > 0) finalContent += ` • ${totalDuration} menit`;
+      }
+    }
+
     if (price.trim()) {
       // Format nominal dengan pemisah ribuan
       const numericPrice = parseInt(price.replace(/[^0-9]/g, ''), 10);
       const formattedPrice = isNaN(numericPrice) ? price : numericPrice.toLocaleString('id-ID');
-      finalContent = finalContent 
-        ? `${finalContent}\n\n🏷️ **Tarif / Biaya:** Rp ${formattedPrice}` 
+      finalContent = finalContent
+        ? `${finalContent}\n\n🏷️ **Tarif / Biaya:** Rp ${formattedPrice}`
         : `🏷️ **Tarif / Biaya:** Rp ${formattedPrice}`;
     }
     
@@ -265,6 +316,38 @@ export default function CreatePostPage() {
               `}</style>
             </div>
 
+            {/* Route Builder Section */}
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => setShowRouteBuilder(!showRouteBuilder)}
+                className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl border-2 transition-all ${
+                  showRouteBuilder || routes.length > 0
+                    ? 'bg-brand-500/10 border-brand-500/30 text-brand-500'
+                    : 'bg-surface-subtle/30 border-border-light/50 text-text-secondary hover:border-brand-500/30'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <RouteIcon size={20} />
+                  <span className="font-semibold">
+                    {routes.length > 0 ? `${routes.length} Rute Ditambahkan` : 'Tambah Info Rute'}
+                  </span>
+                </div>
+                <span className={`transform transition-transform ${showRouteBuilder ? 'rotate-180' : ''}`}>
+                  ▼
+                </span>
+              </button>
+              
+              {showRouteBuilder && (
+                <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                  <RouteBuilder
+                    onRoutesChange={setRoutes}
+                    initialRoutes={routes}
+                  />
+                </div>
+              )}
+            </div>
+
             {/* Price/Tariff Input (Optional) */}
             <div className="mb-6 relative group">
               <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
@@ -366,12 +449,12 @@ export default function CreatePostPage() {
             </div>
 
             {/* Submit Button */}
-            <button 
-              onClick={handleCreatePost} 
-              disabled={(!content.trim() && uploadedImageUrls.length === 0) || isUploadingImage || isSubmitting} 
+            <button
+              onClick={handleCreatePost}
+              disabled={(!content.trim() && uploadedImageUrls.length === 0 && routes.length === 0) || isUploadingImage || isSubmitting}
               className={`w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-[15px] transition-all flex items-center justify-center gap-3 ${
-                (content.trim() || uploadedImageUrls.length > 0) && !isUploadingImage && !isSubmitting 
-                  ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] hover:-translate-y-0.5' 
+                (content.trim() || uploadedImageUrls.length > 0 || routes.length > 0) && !isUploadingImage && !isSubmitting
+                  ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] hover:-translate-y-0.5'
                   : 'bg-surface-hover text-text-secondary/40 cursor-not-allowed border-none'
               }`}
             >
